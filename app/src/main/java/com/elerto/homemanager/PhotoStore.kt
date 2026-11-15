@@ -17,7 +17,10 @@ import kotlin.math.max
 /** Copia le foto nella memoria privata dell'app (ridimensionate) e ne gestisce le anteprime. */
 object PhotoStore {
 
-    private val cache = object : LruCache<String, ImageBitmap>(30) {}
+    // Cache limitata in byte (circa 48 MB), cosi' le foto grandi non saturano la memoria.
+    private val cache = object : LruCache<String, ImageBitmap>(48 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+    }
 
     private fun dir(ctx: Context): File = File(ctx.filesDir, "photos").apply { mkdirs() }
 

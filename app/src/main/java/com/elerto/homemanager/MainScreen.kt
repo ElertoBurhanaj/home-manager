@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +75,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -82,11 +87,27 @@ class DragState {
     var pointer by mutableStateOf(Offset.Zero)
     var containerOrigin: Offset = Offset.Zero
     val chipBounds = HashMap<String, Rect>()
+    val cardBounds = HashMap<String, Rect>()
     var lastDragEnd: Long = 0L
+    var lastReorder: Long = 0L
     var onDrop: (Item, String) -> Unit = { _, _ -> }
+    var onReorder: (String, String) -> Unit = { _, _ -> }
 
     val hovered: String?
         get() = if (item == null) null else chipBounds.entries.firstOrNull { it.value.contains(pointer) }?.key
+
+    /** Se il dito e' sopra un altro capo, sposta il capo trascinato nella sua posizione. */
+    fun checkReorder() {
+        val dragged = item ?: return
+        if (hovered != null) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastReorder < 250) return
+        val target = cardBounds.entries
+            .firstOrNull { it.key != dragged.id && it.value.contains(pointer) }
+            ?.key ?: return
+        lastReorder = now
+        onReorder(dragged.id, target)
+    }
 
     fun start(i: Item, p: Offset) {
         item = i
@@ -136,6 +157,30 @@ fun MainScreen(vm: MainViewModel) {
     val drag = remember { DragState() }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
+    val gridBounds = remember { arrayOf(Rect.Zero) }
+
+    drag.onReorder = { itemId, targetId -> vm.reorderItem(itemId, targetId) }
+
+    // Durante il trascinamento: scorre la griglia ai bordi e controlla il riordino.
+    LaunchedEffect(drag.item?.id) {
+        if (drag.item == null) return@LaunchedEffect
+        while (isActive) {
+            val p = drag.pointer
+            val b = gridBounds[0]
+            val edge = 140f
+            val inColumn = p.x >= b.left && p.x <= b.right
+            val dy = when {
+                !inColumn -> 0f
+                p.y >= b.top && p.y < b.top + edge -> -20f
+                p.y <= b.bottom && p.y > b.bottom - edge -> 20f
+                else -> 0f
+            }
+            if (dy != 0f) gridState.scrollBy(dy)
+            drag.checkReorder()
+            delay(16)
+        }
+    }
 
     drag.onDrop = { item, target ->
         vm.moveItem(item.id, target)
@@ -235,7 +280,7 @@ fun MainScreen(vm: MainViewModel) {
                         }
                     } else {
                         Text(
-                            "Tieni premuto un capo e trascinalo su una residenza per spostarlo.",
+                            "Tieni premuto un capo: trascinalo su un altro capo per cambiare l'ordine, o su una residenza in alto per spostarlo.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -245,12 +290,16 @@ fun MainScreen(vm: MainViewModel) {
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize(),
+                            state = gridState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onGloballyPositioned { gridBounds[0] = it.boundsInRoot() },
                         ) {
                             items(shown, key = { it.id }) { item ->
                                 ItemCard(
                                     item = item,
                                     drag = drag,
+                                    modifier = Modifier.animateItem(),
                                     onOpen = {
                                         if (SystemClock.uptimeMillis() - drag.lastDragEnd > 500) {
                                             vm.screen = Screen.Editor(item.id, item.residenceId)
@@ -366,14 +415,18 @@ private fun ResidenceBar(
 }
 
 @Composable
-private fun ItemCard(item: Item, drag: DragState, onOpen: () -> Unit) {
+private fun ItemCard(item: Item, drag: DragState, modifier: Modifier = Modifier, onOpen: () -> Unit) {
     var origin by remember { mutableStateOf(Offset.Zero) }
     val isDragged = drag.item?.id == item.id
+    DisposableEffect(item.id) { onDispose { drag.cardBounds.remove(item.id) } }
 
     Card(
         onClick = onOpen,
-        modifier = Modifier
-            .onGloballyPositioned { origin = it.positionInRoot() }
+        modifier = modifier
+            .onGloballyPositioned {
+                origin = it.positionInRoot()
+                drag.cardBounds[item.id] = it.boundsInRoot()
+            }
             .alpha(if (isDragged) 0.3f else 1f)
             .pointerInput(item.id) {
                 detectDragGesturesAfterLongPress(
@@ -381,6 +434,7 @@ private fun ItemCard(item: Item, drag: DragState, onOpen: () -> Unit) {
                     onDrag = { change, amount ->
                         change.consume()
                         drag.pointer += amount
+                        drag.checkReorder()
                     },
                     onDragEnd = { drag.finish() },
                     onDragCancel = { drag.cancel() },

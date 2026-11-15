@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -77,6 +79,7 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
     var newPhotos by rememberSaveable { mutableStateOf(ArrayList<String>()) }
     var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showViewer by remember { mutableStateOf(false) }
 
     fun importPhoto(uri: Uri, tempFile: File? = null) {
         scope.launch {
@@ -187,11 +190,24 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                     .fillMaxWidth()
                     .aspectRatio(4f / 3f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .then(
+                        if (photo != null) Modifier.clickable { showViewer = true } else Modifier
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 if (photo != null) {
                     PhotoImage(photo, Modifier.fillMaxSize(), maxPx = 1200)
+                    Text(
+                        "Tocca per ingrandire",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
                 } else {
                     Text("Nessuna foto", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -273,6 +289,11 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Salva") }
         }
+    }
+
+    val viewerPhoto = photo
+    if (showViewer && viewerPhoto != null) {
+        FullScreenPhoto(name = viewerPhoto, onClose = { showViewer = false })
     }
 
     if (confirmDelete && existing != null) {

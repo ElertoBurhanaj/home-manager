@@ -96,6 +96,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (photo != null) deletePhotoFiles(listOf(photo))
     }
 
+    /** Sposta un capo nella posizione di un altro (riordino all'interno della residenza). */
+    fun reorderItem(itemId: String, targetId: String) = update { d ->
+        val from = d.items.indexOfFirst { it.id == itemId }
+        val to = d.items.indexOfFirst { it.id == targetId }
+        if (from < 0 || to < 0 || from == to) {
+            d
+        } else {
+            val list = d.items.toMutableList()
+            val moved = list.removeAt(from)
+            list.add(to, moved)
+            d.copy(items = list)
+        }
+    }
+
     fun moveItem(itemId: String, residenceId: String) = update { d ->
         d.copy(items = d.items.map { if (it.id == itemId) it.copy(residenceId = residenceId) else it })
     }
