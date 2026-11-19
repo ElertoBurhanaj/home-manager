@@ -98,6 +98,7 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
     var showDatePicker by remember { mutableStateOf(false) }
     var viewerPhoto by remember { mutableStateOf<String?>(null) }
     var tidying by remember { mutableStateOf(false) }
+    var showDiscard by remember { mutableStateOf(false) }
 
     fun importPhotos(uris: List<Uri>, tempFile: File? = null) {
         scope.launch {
@@ -177,6 +178,24 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
         vm.screen = Screen.Main
     }
 
+    fun isDirty(): Boolean {
+        val e = existing
+        val parsed = valueText.trim().replace(',', '.').toDoubleOrNull()
+        return if (e == null) {
+            name.isNotBlank() || description.isNotBlank() || category.isNotBlank() || room.isNotBlank() ||
+                valueText.isNotBlank() || photos.isNotEmpty() || warranty != null || favorite || quantity != 1
+        } else {
+            name.trim() != e.name || description.trim() != e.description || category.trim() != e.category ||
+                room.trim() != e.room || quantity != e.quantity || parsed != e.value ||
+                warranty != e.warrantyUntil || favorite != e.favorite ||
+                photos.toList() != e.photos || residenceId != e.residenceId
+        }
+    }
+
+    fun requestBack() {
+        if (isDirty()) showDiscard = true else cancel()
+    }
+
     fun save() {
         val parsedValue = valueText.trim().replace(',', '.').toDoubleOrNull()
         val base = existing ?: Item(name = "", residenceId = residenceId)
@@ -197,9 +216,10 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
         vm.upsertItem(item)
         vm.deletePhotoFiles(toDelete)
         vm.screen = Screen.Main
+        Toast.makeText(ctx, "Oggetto salvato", Toast.LENGTH_SHORT).show()
     }
 
-    BackHandler(onBack = { cancel() })
+    BackHandler(onBack = { requestBack() })
 
     val categorySuggestions = (DEFAULT_CATEGORIES + data.items.map { it.category.trim() })
         .filter { it.isNotEmpty() }
@@ -214,11 +234,15 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
             TopAppBar(
                 title = { Text(if (existing == null) "Nuovo oggetto" else "Modifica oggetto") },
                 navigationIcon = {
-                    IconButton(onClick = { cancel() }) {
+                    IconButton(onClick = { requestBack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
                     }
                 },
                 actions = {
+                    TextButton(
+                        onClick = { save() },
+                        enabled = name.isNotBlank() && residenceId.isNotEmpty(),
+                    ) { Text("Salva", fontWeight = FontWeight.Bold) }
                     if (existing != null) {
                         TextButton(onClick = {
                             vm.deletePhotoFiles(newPhotos)
@@ -522,6 +546,33 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
         ) {
             DatePicker(state = pickerState)
         }
+    }
+
+    if (showDiscard) {
+        AlertDialog(
+            onDismissRequest = { showDiscard = false },
+            title = { Text("Modifiche non salvate") },
+            text = { Text("Vuoi salvare le modifiche prima di uscire? Le foto aggiunte o ordinate andrebbero perse.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscard = false
+                    if (name.isNotBlank() && residenceId.isNotEmpty()) {
+                        save()
+                    } else {
+                        Toast.makeText(ctx, "Inserisci un nome per salvare", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Salva") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { showDiscard = false }) { Text("Continua") }
+                    TextButton(onClick = {
+                        showDiscard = false
+                        cancel()
+                    }) { Text("Scarta") }
+                }
+            },
+        )
     }
 
     if (confirmDelete && existing != null) {
