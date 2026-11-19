@@ -12,8 +12,8 @@ android {
         applicationId = "com.elerto.homemanager"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.1"
+        versionCode = 5
+        versionName = "2.2"
     }
 
     // Keystore fisso nel repo: cosi' ogni build ha la stessa firma e l'app

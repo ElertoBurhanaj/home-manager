@@ -173,6 +173,22 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
         }
     }
 
+    /** Ruota la foto di 90° in senso orario (sul file nuovo: l'originale resta finché non si salva). */
+    fun rotatePhoto(p: String) {
+        if (tidying) return
+        tidying = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { PhotoStore.rotate(ctx, p) }
+            tidying = false
+            if (result != null) {
+                newPhotos = ArrayList(newPhotos + result)
+                photos = ArrayList(photos.map { if (it == p) result else it })
+            } else {
+                Toast.makeText(ctx, "Impossibile ruotare la foto", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun cancel() {
         vm.deletePhotoFiles(newPhotos)
         vm.screen = Screen.Main
@@ -290,7 +306,7 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                     items(photos, key = { it }) { p ->
                         Box(
                             Modifier
-                                .size(150.dp)
+                                .size(170.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .clickable { viewerPhoto = p },
                         ) {
@@ -323,6 +339,18 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                                     .clickable { tidyPhoto(p) }
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
                             )
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(6.dp)
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.55f))
+                                    .clickable { rotatePhoto(p) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("↻", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                            }
                             if (p == photos.first()) {
                                 Text(
                                     "Copertina",

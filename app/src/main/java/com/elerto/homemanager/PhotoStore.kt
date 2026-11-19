@@ -187,6 +187,23 @@ object PhotoStore {
         }
     }
 
+    /** Ruota una foto di 90° in senso orario e salva il risultato come nuovo file (l'originale non cambia). */
+    fun rotate(ctx: Context, name: String): String? {
+        val f = file(ctx, name)
+        if (!f.exists()) return null
+        return try {
+            val bitmap = BitmapFactory.decodeFile(f.path) ?: return null
+            val matrix = Matrix().apply { postRotate(90f) }
+            val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            val newName = UUID.randomUUID().toString() + ".jpg"
+            FileOutputStream(file(ctx, newName)).use { rotated.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            newName
+        } catch (e: Throwable) {
+            // Include la mancanza di memoria con foto molto grandi.
+            null
+        }
+    }
+
     /** Anteprima ridimensionata (lato lungo circa maxPx), con cache in memoria. */
     fun thumb(ctx: Context, name: String, maxPx: Int): ImageBitmap? {
         val key = "$name@$maxPx"
