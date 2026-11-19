@@ -2,6 +2,11 @@ package com.elerto.homemanager
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
@@ -9,10 +14,15 @@ import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.exifinterface.media.ExifInterface
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.segmentation.subject.SubjectSegmentation
+import com.google.mlkit.vision.segmentation.subject.SubjectSegmenterOptions
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import kotlin.math.max
+import kotlin.math.min
 
 /** Copia le foto nella memoria privata dell'app (ridimensionate) e ne gestisce le anteprime. */
 object PhotoStore {
@@ -90,6 +100,88 @@ object PhotoStore {
                     name
                 }
             }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+
+    /**
+     * "Ordina foto": isola l'oggetto dallo sfondo (ML Kit, sul telefono), lo ritaglia, lo centra
+     * su uno sfondo neutro quadrato e salva il risultato come nuova foto. L'originale non viene toccato.
+     * Va chiamata fuori dal thread principale. Restituisce il nome del nuovo file o null se fallisce.
+     */
+    fun tidy(ctx: Context, name: String): String? {
+        val f = file(ctx, name)
+        if (!f.exists()) return null
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(f.path, bounds)
+            if (bounds.outWidth <= 0) return null
+            var sample = 1
+            while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1600) sample *= 2
+            val src = BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: return null
+
+            val segmenter = SubjectSegmentation.getClient(
+                SubjectSegmenterOptions.Builder().enableForegroundBitmap().build()
+            )
+            val fgOrNull: Bitmap? = try {
+                Tasks.await(segmenter.process(InputImage.fromBitmap(src, 0))).foregroundBitmap
+            } finally {
+                segmenter.close()
+            }
+            val fg: Bitmap = fgOrNull ?: return null
+
+            // Riquadro dei pixel non trasparenti.
+            val w = fg.width
+            val h = fg.height
+            val px = IntArray(w * h)
+            fg.getPixels(px, 0, w, 0, 0, w, h)
+            var left = w
+            var right = -1
+            var top = h
+            var bottom = -1
+            for (y in 0 until h) {
+                for (x in 0 until w) {
+                    if ((px[y * w + x] ushr 24) > 40) {
+                        if (x < left) left = x
+                        if (x > right) right = x
+                        if (y < top) top = y
+                        if (y > bottom) bottom = y
+                    }
+                }
+            }
+            if (right < left || bottom < top) return null
+            val cropW = right - left + 1
+            val cropH = bottom - top + 1
+            // Se l'oggetto trovato e' minuscolo, la segmentazione non ha funzionato.
+            if (cropW.toLong() * cropH < w.toLong() * h / 40) return null
+
+            val side = 1200
+            val out = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(out)
+            canvas.drawColor(0xFFF2F2EF.toInt())
+
+            val scale = min(side * 0.84f / cropW, side * 0.84f / cropH)
+            val dw = cropW * scale
+            val dh = cropH * scale
+            val dst = RectF((side - dw) / 2f, (side - dh) / 2f, (side + dw) / 2f, (side + dh) / 2f)
+
+            // Ombra morbida sotto l'oggetto.
+            val shadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0x30000000
+                maskFilter = BlurMaskFilter(28f, BlurMaskFilter.Blur.NORMAL)
+            }
+            canvas.drawOval(
+                RectF(dst.left + dw * 0.08f, dst.bottom - dh * 0.02f, dst.right - dw * 0.08f, dst.bottom + dh * 0.04f + 6f),
+                shadow,
+            )
+            canvas.drawBitmap(fg, Rect(left, top, right + 1, bottom + 1), dst, Paint(Paint.FILTER_BITMAP_FLAG))
+
+            val newName = UUID.randomUUID().toString() + ".jpg"
+            FileOutputStream(file(ctx, newName)).use { out.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            newName
         } catch (e: Exception) {
             null
         }

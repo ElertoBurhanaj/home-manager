@@ -42,6 +42,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -96,6 +97,7 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var viewerPhoto by remember { mutableStateOf<String?>(null) }
+    var tidying by remember { mutableStateOf(false) }
 
     fun importPhotos(uris: List<Uri>, tempFile: File? = null) {
         scope.launch {
@@ -142,6 +144,31 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
             cameraLauncher.launch(uri)
         } catch (e: ActivityNotFoundException) {
             Toast.makeText(ctx, "Nessuna app fotocamera disponibile", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Isola l'oggetto su sfondo neutro e aggiunge il risultato come copertina; l'originale resta. */
+    fun tidyPhoto(p: String) {
+        if (tidying) return
+        tidying = true
+        Toast.makeText(ctx, "Sto ordinando la foto…", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { PhotoStore.tidy(ctx, p) }
+            tidying = false
+            if (result != null) {
+                newPhotos = ArrayList(newPhotos + result)
+                val list = ArrayList<String>(photos)
+                val idx = list.indexOf(p)
+                list.add(if (idx < 0) 0 else idx, result)
+                photos = list
+                Toast.makeText(ctx, "Foto ordinata aggiunta: l'originale è stato conservato", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(
+                    ctx,
+                    "Non sono riuscito a isolare l'oggetto. Alla prima volta serve la connessione per scaricare il modello.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -261,6 +288,17 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                                     modifier = Modifier.size(16.dp),
                                 )
                             }
+                            Text(
+                                "✨ Ordina",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                    .clickable { tidyPhoto(p) }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
                             if (p == photos.first()) {
                                 Text(
                                     "Copertina",
@@ -309,6 +347,10 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                     onClick = { launchCamera() },
                     modifier = Modifier.weight(1f),
                 ) { Text("Fotocamera") }
+            }
+
+            if (tidying) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
             // ---- Dati principali ----

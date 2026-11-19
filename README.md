@@ -6,6 +6,7 @@ App Android per catalogare gli oggetti di casa (e delle case al mare, in montagn
 
 - **Più residenze**, ognuna con la sua icona; aggiunta, rinomina ed eliminazione.
 - **Oggetti completi**: più foto (galleria o fotocamera, con scelta della copertina), categoria, stanza o posizione, quantità, valore, scadenza della garanzia, note.
+- **Ordina foto** (✨): isola l'oggetto dallo sfondo con ML Kit, lo centra su fondo neutro con ombra morbida e lo aggiunge come copertina, conservando l'originale. La prima volta serve la connessione per scaricare il modello.
 - **Ricerca** in tutte le residenze (nome, note, categoria, stanza).
 - **Ordinamento**: manuale, per nome, più recenti, valore più alto, preferiti prima. Filtri per categoria e preferiti.
 - **Preferiti** con la stella direttamente sulla scheda.
