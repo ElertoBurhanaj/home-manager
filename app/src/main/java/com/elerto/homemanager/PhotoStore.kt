@@ -26,6 +26,22 @@ object PhotoStore {
 
     private fun file(ctx: Context, name: String): File = File(dir(ctx), name)
 
+    /** File di una foto salvata (usato da backup e ripristino). */
+    fun fileOf(ctx: Context, name: String): File = file(ctx, name)
+
+    /** Crea una copia indipendente di una foto (per duplicare un oggetto). */
+    fun copy(ctx: Context, name: String): String? {
+        val src = file(ctx, name)
+        if (!src.exists()) return null
+        val newName = UUID.randomUUID().toString() + ".jpg"
+        return try {
+            src.copyTo(file(ctx, newName))
+            newName
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Importa una foto da un Uri e restituisce il nome del file salvato, o null se fallisce. */
     fun save(ctx: Context, uri: Uri): String? {
         return try {

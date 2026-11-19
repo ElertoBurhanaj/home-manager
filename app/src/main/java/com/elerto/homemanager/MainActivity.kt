@@ -18,13 +18,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            HomeManagerTheme {
+            HomeInventoryTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     when (val s = vm.screen) {
                         Screen.Main -> MainScreen(vm)
+                        Screen.Overview -> OverviewScreen(vm)
                         is Screen.Editor -> ItemEditorScreen(vm, s)
                     }
                 }

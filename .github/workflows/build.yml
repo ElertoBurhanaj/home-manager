@@ -28,22 +28,22 @@ jobs:
           ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk HomeManager.apk
+        run: cp app/build/outputs/apk/release/app-release.apk HomeInventory.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: HomeManager-apk
-          path: HomeManager.apk
+          name: HomeInventory-apk
+          path: HomeInventory.apk
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Home Manager (build ${{ github.run_number }})
+          name: Home Inventory (build ${{ github.run_number }})
           body: |
             APK installabile per Android 8.0 o superiore.
-            Scarica `HomeManager.apk`, aprilo sul telefono e consenti l'installazione da questa fonte.
-          files: HomeManager.apk
+            Scarica `HomeInventory.apk`, aprilo sul telefono e consenti l'installazione da questa fonte.
+          files: HomeInventory.apk
           make_latest: true
 
       - name: Publish build log on failure

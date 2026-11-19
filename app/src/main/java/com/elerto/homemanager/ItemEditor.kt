@@ -20,17 +20,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +49,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +63,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
@@ -68,39 +79,48 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
     val data by vm.data.collectAsState()
 
     val existing = remember(screen.itemId) { data.items.firstOrNull { it.id == screen.itemId } }
-    val originalPhoto = existing?.photo
 
     var name by rememberSaveable { mutableStateOf(existing?.name ?: "") }
     var description by rememberSaveable { mutableStateOf(existing?.description ?: "") }
     var category by rememberSaveable { mutableStateOf(existing?.category ?: "") }
-    var photo by rememberSaveable { mutableStateOf(existing?.photo) }
+    var room by rememberSaveable { mutableStateOf(existing?.room ?: "") }
+    var quantity by rememberSaveable { mutableStateOf(existing?.quantity ?: 1) }
+    var valueText by rememberSaveable { mutableStateOf(existing?.value?.let { plainNumber(it) } ?: "") }
+    var warranty by rememberSaveable { mutableStateOf<Long?>(existing?.warrantyUntil) }
+    var favorite by rememberSaveable { mutableStateOf(existing?.favorite ?: false) }
+    var photos by rememberSaveable { mutableStateOf(ArrayList(existing?.photos ?: emptyList<String>())) }
     var residenceId by rememberSaveable { mutableStateOf(existing?.residenceId ?: screen.residenceId) }
     // Foto importate durante questa modifica: se si annulla vanno cancellate.
     var newPhotos by rememberSaveable { mutableStateOf(ArrayList<String>()) }
     var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var showViewer by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var viewerPhoto by remember { mutableStateOf<String?>(null) }
 
-    fun importPhoto(uri: Uri, tempFile: File? = null) {
+    fun importPhotos(uris: List<Uri>, tempFile: File? = null) {
         scope.launch {
-            val saved = withContext(Dispatchers.IO) {
-                val result = PhotoStore.save(ctx, uri)
-                tempFile?.delete()
-                result
+            var failed = false
+            for (uri in uris) {
+                val saved = withContext(Dispatchers.IO) {
+                    val result = PhotoStore.save(ctx, uri)
+                    tempFile?.delete()
+                    result
+                }
+                if (saved != null) {
+                    newPhotos = ArrayList(newPhotos + saved)
+                    photos = ArrayList(photos + saved)
+                } else {
+                    failed = true
+                }
             }
-            if (saved != null) {
-                newPhotos = ArrayList(newPhotos + saved)
-                photo = saved
-            } else {
-                Toast.makeText(ctx, "Impossibile leggere la foto", Toast.LENGTH_SHORT).show()
-            }
+            if (failed) Toast.makeText(ctx, "Impossibile leggere una foto", Toast.LENGTH_SHORT).show()
         }
     }
 
     val pickLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) importPhoto(uri)
+        ActivityResultContracts.PickMultipleVisualMedia(10)
+    ) { uris ->
+        if (uris.isNotEmpty()) importPhotos(uris)
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -109,7 +129,7 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
         val path = cameraPath
         if (ok && path != null) {
             val file = File(path)
-            importPhoto(Uri.fromFile(file), tempFile = file)
+            importPhotos(listOf(Uri.fromFile(file)), tempFile = file)
         }
     }
 
@@ -131,21 +151,22 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
     }
 
     fun save() {
-        val item = existing?.copy(
+        val parsedValue = valueText.trim().replace(',', '.').toDoubleOrNull()
+        val base = existing ?: Item(name = "", residenceId = residenceId)
+        val item = base.copy(
             name = name.trim(),
             description = description.trim(),
             category = category.trim(),
-            photo = photo,
-            residenceId = residenceId,
-        ) ?: Item(
-            name = name.trim(),
-            description = description.trim(),
-            category = category.trim(),
-            photo = photo,
+            room = room.trim(),
+            quantity = quantity.coerceAtLeast(1),
+            value = parsedValue,
+            warrantyUntil = warranty,
+            favorite = favorite,
+            photos = photos.toList(),
             residenceId = residenceId,
         )
-        val toDelete = newPhotos.filter { it != photo } +
-            listOfNotNull(originalPhoto.takeIf { it != null && it != photo })
+        val originalPhotos = existing?.photos ?: emptyList()
+        val toDelete = newPhotos.filter { it !in photos } + originalPhotos.filter { it !in photos }
         vm.upsertItem(item)
         vm.deletePhotoFiles(toDelete)
         vm.screen = Screen.Main
@@ -153,14 +174,18 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
 
     BackHandler(onBack = { cancel() })
 
-    val suggestions = (DEFAULT_CATEGORIES + data.items.map { it.category.trim() })
+    val categorySuggestions = (DEFAULT_CATEGORIES + data.items.map { it.category.trim() })
         .filter { it.isNotEmpty() }
         .distinct()
+
+    val roomSuggestions = (
+        data.items.filter { it.residenceId == residenceId }.map { it.room.trim() } + DEFAULT_ROOMS
+        ).filter { it.isNotEmpty() }.distinct()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (existing == null) "Nuovo capo" else "Modifica capo") },
+                title = { Text(if (existing == null) "Nuovo oggetto" else "Modifica oggetto") },
                 navigationIcon = {
                     IconButton(onClick = { cancel() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
@@ -168,8 +193,13 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                 },
                 actions = {
                     if (existing != null) {
+                        TextButton(onClick = {
+                            vm.deletePhotoFiles(newPhotos)
+                            vm.duplicateItem(existing.id)
+                            vm.screen = Screen.Main
+                        }) { Text("Duplica") }
                         IconButton(onClick = { confirmDelete = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Elimina capo")
+                            Icon(Icons.Default.Delete, contentDescription = "Elimina oggetto")
                         }
                     }
                 },
@@ -185,31 +215,80 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                 .imePadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(4f / 3f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .then(
-                        if (photo != null) Modifier.clickable { showViewer = true } else Modifier
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (photo != null) {
-                    PhotoImage(photo, Modifier.fillMaxSize(), maxPx = 1200)
-                    Text(
-                        "Tocca per ingrandire",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(8.dp)
-                            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                } else {
-                    Text("Nessuna foto", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // ---- Foto ----
+            if (photos.isEmpty()) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(categoryEmoji(category), style = MaterialTheme.typography.displayMedium)
+                        Text(
+                            "Nessuna foto",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            } else {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(photos, key = { it }) { p ->
+                        Box(
+                            Modifier
+                                .size(150.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { viewerPhoto = p },
+                        ) {
+                            PhotoImage(p, Modifier.fillMaxSize(), maxPx = 600)
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(6.dp)
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.55f))
+                                    .clickable { photos = ArrayList(photos.filter { it != p }) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Rimuovi foto",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            if (p == photos.first()) {
+                                Text(
+                                    "Copertina",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(6.dp)
+                                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                )
+                            } else {
+                                Text(
+                                    "Imposta copertina",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(6.dp)
+                                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            photos = ArrayList(listOf(p) + photos.filter { it != p })
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -230,24 +309,14 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                     onClick = { launchCamera() },
                     modifier = Modifier.weight(1f),
                 ) { Text("Fotocamera") }
-                if (photo != null) {
-                    TextButton(onClick = { photo = null }) { Text("Rimuovi") }
-                }
             }
 
+            // ---- Dati principali ----
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Nome") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                label = { Text("Descrizione") },
-                minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
             )
 
@@ -260,10 +329,30 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(suggestions) { s ->
+                    items(categorySuggestions) { s ->
                         FilterChip(
                             selected = category.trim().equals(s, ignoreCase = true),
                             onClick = { category = s },
+                            label = { Text(s) },
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = room,
+                    onValueChange = { room = it },
+                    label = { Text("Stanza o posizione") },
+                    placeholder = { Text("Es. Cantina, scaffale 2") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(roomSuggestions) { s ->
+                        FilterChip(
+                            selected = room.trim().equals(s, ignoreCase = true),
+                            onClick = { room = s },
                             label = { Text(s) },
                         )
                     }
@@ -277,11 +366,90 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
                         FilterChip(
                             selected = residenceId == r.id,
                             onClick = { residenceId = r.id },
-                            label = { Text(r.name) },
+                            label = { Text("${r.icon} ${r.name}") },
                         )
                     }
                 }
             }
+
+            // ---- Quantita' e valore ----
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilledTonalIconButton(onClick = { if (quantity > 1) quantity -= 1 }) {
+                        Text("−", style = MaterialTheme.typography.titleLarge)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            quantity.toString(),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text("Quantità", style = MaterialTheme.typography.labelSmall)
+                    }
+                    FilledTonalIconButton(onClick = { if (quantity < 9999) quantity += 1 }) {
+                        Text("+", style = MaterialTheme.typography.titleLarge)
+                    }
+                }
+                OutlinedTextField(
+                    value = valueText,
+                    onValueChange = { v -> valueText = v.filter { c -> c.isDigit() || c == ',' || c == '.' } },
+                    label = { Text("Valore") },
+                    prefix = { Text("€ ") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            // ---- Garanzia ----
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Garanzia", style = MaterialTheme.typography.titleSmall)
+                val w = warranty
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = { showDatePicker = true },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (w == null) "Imposta scadenza" else warrantyLabel(w))
+                    }
+                    if (w != null) {
+                        TextButton(onClick = { warranty = null }) { Text("Rimuovi") }
+                    }
+                }
+            }
+
+            FilterChip(
+                selected = favorite,
+                onClick = { favorite = !favorite },
+                label = { Text("Preferito") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = if (favorite) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+            )
+
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Note e descrizione") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             Button(
                 onClick = { save() },
@@ -291,15 +459,33 @@ fun ItemEditorScreen(vm: MainViewModel, screen: Screen.Editor) {
         }
     }
 
-    val viewerPhoto = photo
-    if (showViewer && viewerPhoto != null) {
-        FullScreenPhoto(name = viewerPhoto, onClose = { showViewer = false })
+    val viewing = viewerPhoto
+    if (viewing != null) {
+        FullScreenPhoto(name = viewing, onClose = { viewerPhoto = null })
+    }
+
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = warranty)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    warranty = pickerState.selectedDateMillis
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Annulla") }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
     }
 
     if (confirmDelete && existing != null) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Eliminare questo capo?") },
+            title = { Text("Eliminare questo oggetto?") },
             text = { Text("\"${existing.name}\" verrà rimosso definitivamente.") },
             confirmButton = {
                 TextButton(onClick = {
